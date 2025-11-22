@@ -32,7 +32,7 @@ export default function SignInPage() {
       <section className="flex flex-1 items-center justify-center px-4 py-4">
         <div className="w-full max-w-sm md:max-w-xl lg:max-w-2xl flex flex-col items-center text-center">
           <div className="mb-8 mt-8 md:mt-0">
-            <span className="flex items-center text-2xl font-semibold gap-4 justify-center items-baseline">
+            <span className="flex text-2xl font-semibold gap-4 justify-center items-baseline">
               <h1>Sign In to continue</h1>
               <UserCheck size={24}></UserCheck>
             </span>
