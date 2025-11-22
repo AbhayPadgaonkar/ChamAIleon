@@ -35,15 +35,6 @@ async def analyze_payload(request: PayloadRequest):
             "verdict": log_entry['classification'], 
             "confidence": log_entry['confidence'],
             "detected_by": log_entry['detection_source'] 
-        },
-        "defense_action": {
-            "status_code": fake_response['status'],
-            "message": fake_response['msg'],
-            "tarpit_applied": log_entry['tarpit_delay'] 
-        },
-        "forensics": {
-            "merkle_hash": log_entry['merkle_hash'], 
-            "timestamp": log_entry['timestamp']
         }
     }
 

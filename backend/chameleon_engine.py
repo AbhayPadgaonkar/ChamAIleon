@@ -60,12 +60,7 @@ class ChameleonDefense:
             pass
         return str(text).lower().strip()
 
-    def calculate_merkle_hash(self, log_entry):
-        log_string = json.dumps(log_entry, sort_keys=True)
-        combined = log_string + self.previous_hash
-        new_hash = hashlib.sha256(combined.encode()).hexdigest()
-        self.previous_hash = new_hash
-        return new_hash
+
 
     def tarpit_logic(self, ip):
         now = time.time()
@@ -120,17 +115,5 @@ class ChameleonDefense:
             }
         elif attack_type == 'XSS':
             response = {"status": 403, "msg": "Forbidden: Input validation failed."}
-
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "ip": ip_address,
-            "payload": raw_payload,
-            "classification": attack_type,
-            "confidence": f"{confidence*100:.1f}%",
-            "detection_source": source,
-            "tarpit_delay": f"{delay}s"
-        }
-        log_entry['merkle_hash'] = self.calculate_merkle_hash(log_entry)
-        self.evidence_chain.append(log_entry)
         
-        return response, log_entry
+        return response
