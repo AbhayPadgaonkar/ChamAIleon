@@ -58,11 +58,11 @@ export default function SignInPage() {
                         className="text-sm md:text-base"
                         htmlFor="checkout-7j9-card-name-43j"
                       >
-                        Username
+                        Email Id 
                       </FieldLabel>
                       <Input
                         id="checkout-7j9-card-name-43j"
-                        placeholder="Enter your username"
+                        placeholder="Enter your email id"
                         required
                         className="bg-card border-primary/50 hover:bg-primary/10 dark:hover:bg-primary/10"
                       />
