@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/app/firebase"; // adjust path if needed
 
 import Logo from "@/components/Logo";
@@ -41,6 +41,17 @@ export default function Dashboard() {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const popoverRef = useRef(null);
 
+  // 🔥 Firebase data states
+  const [attacks, setAttacks] = useState([]);
+  const [stats, setStats] = useState({
+    total: 0,
+    sqli: 0,
+    xss: 0,
+    bruteforce: 0,
+    benign: 0,
+    avgConfidence: 0
+  });
+
   // listen for auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -75,6 +86,48 @@ export default function Dashboard() {
 
     return () => unsub();
   }, [router]);
+
+  // 🔥 Real-time attack listener from Firebase
+  useEffect(() => {
+    if (!uid) return;
+
+    const q = query(
+      collection(db, 'attacks'),
+      orderBy('timestamp', 'desc'),
+      limit(500) // Get more data for charts
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const attacksData = [];
+      let sqliCount = 0, xssCount = 0, bruteCount = 0, benignCount = 0;
+      let totalConfidence = 0;
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        attacksData.push({ id: doc.id, ...data });
+        
+        const classification = data.classification?.toLowerCase();
+        if (classification === 'sqli' || classification === 'sql injection') sqliCount++;
+        else if (classification === 'xss') xssCount++;
+        else if (classification === 'brute force' || classification === 'bruteforce') bruteCount++;
+        else if (classification === 'benign') benignCount++;
+
+        totalConfidence += (data.confidence || 0);
+      });
+
+      setAttacks(attacksData);
+      setStats({
+        total: attacksData.length,
+        sqli: sqliCount,
+        xss: xssCount,
+        bruteforce: bruteCount,
+        benign: benignCount,
+        avgConfidence: attacksData.length > 0 ? Math.round((totalConfidence / attacksData.length) * 100) : 0
+      });
+    });
+
+    return () => unsubscribe();
+  }, [uid]);
 
   // Close popover when clicking outside
   useEffect(() => {
@@ -261,75 +314,77 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Total Threats"
-              value="247"
+              value={stats.total}
               icon={AlertTriangle}
-              trend={{ value: 12, isPositive: false }}
             />
             <KPICard
               title="Average Confidence"
-              value={"92" + "%"}
+              value={stats.avgConfidence + "%"}
               icon={Activity}
-              trend={{ value: 8, isPositive: true }}
             />
             <KPICard
-              title="XSS Attack"
-              value="50"
+              title="XSS Attacks"
+              value={stats.xss}
               icon={X}
-              trend={{ value: 5, isPositive: true }}
             />
             <KPICard
-              title="SQI Attack"
-              value="42"
+              title="SQLi Attacks"
+              value={stats.sqli}
               icon={ShieldAlert}
-              trend={{ value: 3, isPositive: true }}
             />
           </div>
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <ChartRadarAttack
-              dataCounts={{ benign: 120, xss: 50, sqli: 42, bruteforce: 7 }}
-              title="Attacks (last 24h)"
+              dataCounts={{ 
+                benign: stats.benign, 
+                xss: stats.xss, 
+                sqli: stats.sqli, 
+                bruteforce: stats.bruteforce 
+              }}
+              title="Attack Distribution"
             />
 
             <ChartLineAttacks
-              events={[
-                {
-                  id: "1",
-                  type: "xss",
-                  timestamp: "November 23, 2025 at 5:25:01\u202FAM UTC+5:30",
-                },
-                {
-                  id: "2",
-                  type: "sqli",
-                  timestamp: "November 23, 2025 at 6:03:55\u202FAM UTC+5:30",
-                },
-                // ...
-              ]}
-              title="Attacks (12h)"
+              events={attacks.slice(0, 100).map(attack => ({
+                id: attack.id,
+                type: (attack.classification || 'benign').toLowerCase(),
+                timestamp: attack.timestamp?.toDate?.()?.toString() || attack.timestampISO || new Date().toString()
+              }))}
+              title="Attacks (Last 12 Hours)"
             />
             <MapZone
-              zones={[
-                {
-                  id: 1,
-                  lat: 19.076,
-                  lng: 72.8777,
-                  radius: 800,
-                  color: "rgba(240,196,25,0.95)", // yellow accent
-                  popup: "Mumbai Zone",
-                },
-                {
-                  id: 2,
-                  lat: 12.9716,
-                  lng: 77.5946,
-                  radius: 1000,
-                  color: "rgba(15,138,87,0.9)", // your green primary
-                  popup: "Bangalore Zone",
-                },
-              ]}
+              zones={attacks
+                .filter(a => a.latitude && a.longitude && a.latitude !== 0 && a.longitude !== 0)
+                .slice(0, 50)
+                .map((attack, idx) => ({
+                  id: attack.id || idx,
+                  lat: attack.latitude,
+                  lng: attack.longitude,
+                  radius: 500,
+                  color: attack.classification === 'sqli' ? 'rgba(239,68,68,0.7)' : 
+                         attack.classification === 'xss' ? 'rgba(251,146,60,0.7)' : 
+                         'rgba(240,196,25,0.7)',
+                  popup: `${attack.city || 'Unknown'}, ${attack.country || 'Unknown'}`
+                }))
+              }
               mapHeight="480px"
             />
           </div>
           <div className="mt-8">
- <SecurityLogsTable logs={myLogsFromFirestore} />
+            <SecurityLogsTable logs={attacks.slice(0, 100).map(attack => ({
+              id: attack.id,
+              sessionId: attack.id.substring(0, 16),
+              input: attack.payload || attack.input || 'N/A',
+              time: attack.timestamp?.toDate?.()?.toLocaleString('en-IN', { 
+                timeZone: 'Asia/Kolkata',
+                dateStyle: 'medium',
+                timeStyle: 'long'
+              }) || attack.timestampISO || 'N/A',
+              ip: attack.ip || attack.clientIp || 'Unknown',
+              city: attack.city || 'Unknown',
+              country: attack.country || 'Unknown',
+              classification: (attack.classification || 'benign').toLowerCase()
+            }))} />
           </div>
          
         </div>
@@ -337,157 +392,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-const dummyLogs = [
-  {
-    id: "log1",
-    sessionId: "SID-a82jf9asf9823jh2",
-    input: "<script>alert(1)</script>",
-    time: "November 23, 2025 at 5:25:01 AM UTC+5:30",
-    ip: "192.168.1.45",
-    city: "Mumbai",
-    country: "India",
-    classification: "xss",
-  },
-  {
-    id: "log2",
-    sessionId: "SID-98asdh98h12h8912",
-    input: "' OR 1=1 --",
-    time: "November 23, 2025 at 4:55:42 AM UTC+5:30",
-    ip: "103.44.22.10",
-    city: "Delhi",
-    country: "India",
-    classification: "sqli",
-  },
-  {
-    id: "log3",
-    sessionId: "SID-1j2h3jh12hj3h123",
-    input: "admin' OR 'a'='a",
-    time: "November 23, 2025 at 4:30:12 AM UTC+5:30",
-    ip: "45.122.88.210",
-    city: "Bengaluru",
-    country: "India",
-    classification: "sqli",
-  },
-  {
-    id: "log4",
-    sessionId: "SID-12398123nasd98123",
-    input: "password=123456",
-    time: "November 23, 2025 at 4:10:59 AM UTC+5:30",
-    ip: "152.57.69.12",
-    city: "Pune",
-    country: "India",
-    classification: "bruteforce",
-  },
-  {
-    id: "log5",
-    sessionId: "SID-asd8123u12b3u12b",
-    input: "<img src=x onerror=alert('xss')>",
-    time: "November 23, 2025 at 3:55:17 AM UTC+5:30",
-    ip: "122.177.33.90",
-    city: "Kolkata",
-    country: "India",
-    classification: "xss",
-  },
-  {
-    id: "log6",
-    sessionId: "SID-n12b3n12b3n1b23",
-    input: "normal_login_attempt",
-    time: "November 23, 2025 at 3:40:02 AM UTC+5:30",
-    ip: "49.207.18.205",
-    city: "Chennai",
-    country: "India",
-    classification: "benign",
-  },
-  {
-    id: "log7",
-    sessionId: "SID-b123b123b123b123",
-    input: "'; DROP TABLE users; --",
-    time: "November 23, 2025 at 3:10:30 AM UTC+5:30",
-    ip: "185.199.110.22",
-    city: "Berlin",
-    country: "Germany",
-    classification: "sqli",
-  },
-  {
-    id: "log8",
-    sessionId: "SID-b2123b21b3n21b32",
-    input: "GET /admin HTTP/1.1",
-    time: "November 23, 2025 at 2:50:15 AM UTC+5:30",
-    ip: "77.88.8.8",
-    city: "Moscow",
-    country: "Russia",
-    classification: "bruteforce",
-  },
-  {
-    id: "log9",
-    sessionId: "SID-jh123jh12jh3j12h",
-    input: "<svg/onload=confirm(123)>",
-    time: "November 23, 2025 at 2:30:44 AM UTC+5:30",
-    ip: "82.44.12.56",
-    city: "London",
-    country: "United Kingdom",
-    classification: "xss",
-  },
-  {
-    id: "log10",
-    sessionId: "SID-18h1h82h182h182",
-    input: "valid input",
-    time: "November 23, 2025 at 2:05:10 AM UTC+5:30",
-    ip: "110.172.201.220",
-    city: "Hyderabad",
-    country: "India",
-    classification: "benign",
-  },
-  {
-    id: "log11",
-    sessionId: "SID-n12b3n12b3n1b23",
-    input: "normal_login_attempt",
-    time: "November 23, 2025 at 3:40:02 AM UTC+5:30",
-    ip: "49.207.18.205",
-    city: "Chennai",
-    country: "India",
-    classification: "benign",
-  },
-  {
-    id: "log12",
-    sessionId: "SID-b123b123b123b123",
-    input: "'; DROP TABLE users; --",
-    time: "November 23, 2025 at 3:10:30 AM UTC+5:30",
-    ip: "185.199.110.22",
-    city: "Berlin",
-    country: "Germany",
-    classification: "sqli",
-  },
-  {
-    id: "log13",
-    sessionId: "SID-b2123b21b3n21b32",
-    input: "GET /admin HTTP/1.1",
-    time: "November 23, 2025 at 2:50:15 AM UTC+5:30",
-    ip: "77.88.8.8",
-    city: "Moscow",
-    country: "Russia",
-    classification: "bruteforce",
-  },
-  {
-    id: "log14",
-    sessionId: "SID-jh123jh12jh3j12h",
-    input: "<svg/onload=confirm(123)>",
-    time: "November 23, 2025 at 2:30:44 AM UTC+5:30",
-    ip: "82.44.12.56",
-    city: "London",
-    country: "United Kingdom",
-    classification: "xss",
-  },
-  {
-    id: "log15",
-    sessionId: "SID-18h1h82h182h182",
-    input: "valid input",
-    time: "November 23, 2025 at 2:05:10 AM UTC+5:30",
-    ip: "110.172.201.220",
-    city: "Hyderabad",
-    country: "India",
-    classification: "benign",
-  },
-];
-const myLogsFromFirestore = dummyLogs; // replace with actual data fetch
